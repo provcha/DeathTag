@@ -1,8 +1,5 @@
 <!doctype html>
 <html lang="ru">
-<link rel="apple-touch-icon" href="icon.png">
-<link rel="icon" type="image/png" href="icon.png">
-<meta name="apple-mobile-web-app-title" content="Журнал 11БС">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -156,6 +153,9 @@ button.danger { color:#ffbcbc; border-color:#774c57; }
 .notice { color:#f6df9c; background:#332b18; border-color:#6d5a2b; }
 footer { color:#829ab4; }
 
+
+.status-wrap { display:grid; gap:5px; min-width:0; }
+.late-minutes { width:100%; min-height:32px; font-size:13px; padding:5px 7px; color:#ffe7a6; border-color:#8b6c2c; background:linear-gradient(#332a19,#1b160e); }
 </style>
 </head>
 <body>
@@ -243,7 +243,7 @@ footer { color:#829ab4; }
     "Байков Дмитрий",
     "Викульев Вадим",
     "Воробьев Роман",
-    "Иванов Виктор",
+    "Иванов Дмитрий",
     "Каравашкин Егор",
     "Клименко Иван",
     "Княжище Даниил",
@@ -321,9 +321,13 @@ footer { color:#829ab4; }
       const options = statuses.map(([value, label]) =>
         `<option value="${value}" ${value === status ? "selected" : ""}>${label}</option>`
       ).join("");
+      const lateMinutes = Number(marks.__lateMinutes?.[student.id]) || "";
       return `<div class="student">
         <div class="student-name"><span class="student-num">${index + 1}.</span>${safeText(student.name)}</div>
-        <select class="status ${status}" data-student-id="${safeText(student.id)}" aria-label="Отметка: ${safeText(student.name)}">${options}</select>
+        <div class="status-wrap">
+          <select class="status ${status}" data-student-id="${safeText(student.id)}" aria-label="Отметка: ${safeText(student.name)}">${options}</select>
+          ${status === "late" ? `<input class="late-minutes" type="number" min="1" max="1440" step="1" placeholder="Минут опоздания" value="${lateMinutes}" data-late-id="${safeText(student.id)}" aria-label="Минут опоздания: ${safeText(student.name)}">` : ""}
+        </div>
       </div>`;
     }).join("");
     list.querySelectorAll("select[data-student-id]").forEach(select => {
@@ -333,9 +337,23 @@ footer { color:#829ab4; }
         const marks = dayMarks();
         if (value) marks[id] = value;
         else delete marks[id];
+        if (value !== "late" && marks.__lateMinutes) delete marks.__lateMinutes[id];
         save();
-        event.target.className = "status " + value;
-        renderStats();
+        renderStudents();
+      });
+    });
+    list.querySelectorAll("input[data-late-id]").forEach(input => {
+      input.addEventListener("input", event => {
+        const id = event.target.dataset.lateId;
+        const value = event.target.value;
+        const marks = dayMarks();
+        if (!marks.__lateMinutes) marks.__lateMinutes = {};
+        if (value === "") delete marks.__lateMinutes[id];
+        else {
+          const minutes = Number(value);
+          if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440) marks.__lateMinutes[id] = minutes;
+        }
+        save();
       });
     });
     renderStats();
@@ -377,10 +395,11 @@ footer { color:#829ab4; }
     });
   }
   function downloadCSV() {
-    const headers = ["Дата", "Имя", "Отметка"];
+    const headers = ["Дата", "Имя", "Отметка", "Минут опоздания"];
     const key = dateKey();
     const labels = Object.fromEntries(statuses);
-    const rows = data.students.map(s => [key, s.name, labels[dayMarks()[s.id] || ""]]);
+    const marks = dayMarks();
+    const rows = data.students.map(s => [key, s.name, labels[marks[s.id] || ""], marks.__lateMinutes?.[s.id] || ""]);
     const quote = value => '"' + String(value).replace(/"/g, '""') + '"';
     const csv = "\uFEFF" + [headers, ...rows].map(row => row.map(quote).join(";")).join("\r\n");
     const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
@@ -475,7 +494,8 @@ footer { color:#829ab4; }
       while (ctx.measureText(name).width > 520 && name.length > 3) name = name.slice(0, -2) + "…";
       ctx.fillText(name, 105, y + 29);
       const status = marks[student.id] || "";
-      const statusText = labels[status] || "Не отмечен";
+      const lateMinutes = Number(marks.__lateMinutes?.[student.id]) || 0;
+      const statusText = status === "late" && lateMinutes > 0 ? `Опоздал на ${lateMinutes} мин.` : (labels[status] || "Не отмечен");
       const colors = {present:"#35d58a", absent:"#ff747e", late:"#ffc94f", excused:"#78baff", "":"#8192a7"};
       ctx.fillStyle = colors[status] || "#8192a7";
       ctx.beginPath(); ctx.roundRect(680, y + 7, 350, 32, 8); ctx.fill();
@@ -512,7 +532,7 @@ footer { color:#829ab4; }
     if (event.key === "Enter") $("addStudentBtn").click();
   });
   $("resetRosterBtn").addEventListener("click", () => {
-    if (!confirm("Заменить текущий список 24 условными именами? Текущие имена будут потеряны.")) return;
+    if (!confirm("Заменить текущий список именами из исходного списка? Текущие имена будут потеряны.")) return;
     data.students = defaultStudents.map(s => ({...s}));
     save(); renderStudents(); renderRoster();
   });
